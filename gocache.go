@@ -20,6 +20,7 @@ type Group struct {
 	name      string
 	getter    Getter
 	mainCache cache
+	peers     PeerPicker
 }
 
 var (
@@ -50,6 +51,13 @@ func GetGroup(name string) *Group {
 	return groups[name]
 }
 
+func (g *Group) RegisterPeers(peers PeerPicker) {
+	if g.peers != nil {
+		panic("RegisterPeerPicker called more than once")
+	}
+	g.peers = peers
+}
+
 func (g *Group) Get(key string) (ByteView, error) {
 	if key == "" {
 		return ByteView{}, fmt.Errorf("key is required")
@@ -64,8 +72,25 @@ func (g *Group) Get(key string) (ByteView, error) {
 }
 
 func (g *Group) load(key string) (ByteView, error) {
-	log.Println("[load]", key)
+	if g.peers != nil {
+		if peer, ok := g.peers.PickPeer(key); ok {
+			val, err := g.getFormPeer(peer, key)
+			if  err != nil {
+				log.Println("[GeeCache] Failed to get from peer", err)
+				return ByteView{}, err
+			}
+			return val, nil
+		}
+	}
 	return g.getLocally(key)
+}
+
+func (g *Group) getFormPeer(peer PeerGetter, key string) (ByteView, error) {
+	bytes, err := peer.Get(g.name, key)
+	if err != nil {
+		return ByteView{}, err
+	}
+	return ByteView{b: bytes}, nil
 }
 
 // 从回调函数获取数据
