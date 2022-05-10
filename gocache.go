@@ -2,6 +2,7 @@ package go_cache
 
 import (
 	"fmt"
+	"go-cache/singleflight"
 	"log"
 	"sync"
 )
@@ -21,6 +22,8 @@ type Group struct {
 	getter    Getter
 	mainCache cache
 	peers     PeerPicker
+
+	loader *singleflight.Group
 }
 
 var (
@@ -40,6 +43,7 @@ func NewGroup(name string, cacheByte int64, getter Getter) *Group {
 		name:      name,
 		getter:    getter,
 		mainCache: cache{cacheByte: cacheByte},
+		loader: &singleflight.Group{},
 	}
 	groups[name] = g
 	return g
@@ -72,17 +76,24 @@ func (g *Group) Get(key string) (ByteView, error) {
 }
 
 func (g *Group) load(key string) (ByteView, error) {
-	if g.peers != nil {
-		if peer, ok := g.peers.PickPeer(key); ok {
-			val, err := g.getFormPeer(peer, key)
-			if  err != nil {
-				log.Println("[GeeCache] Failed to get from peer", err)
-				return ByteView{}, err
+	viewi,err := g.loader.Do(key, func() (interface{}, error) {
+		if g.peers != nil {
+			if peer, ok := g.peers.PickPeer(key); ok {
+				val, err := g.getFormPeer(peer, key)
+				if  err != nil {
+					log.Println("[GeeCache] Failed to get from peer", err)
+					return ByteView{}, err
+				}
+				return val, nil
 			}
-			return val, nil
 		}
+		return g.getLocally(key)
+	})
+
+	if err != nil {
+		return ByteView{}, err
 	}
-	return g.getLocally(key)
+	return viewi.(ByteView), err
 }
 
 func (g *Group) getFormPeer(peer PeerGetter, key string) (ByteView, error) {
