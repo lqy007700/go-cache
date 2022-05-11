@@ -1,9 +1,11 @@
 package go_cache
 
+import pb "go-cache/gocachepb"
+
 type PeerPicker interface {
 	PickPeer(key string) (PeerGetter, bool)
 }
 
 type PeerGetter interface {
-	Get(group string, key string) ([]byte, error)
+	Get(in *pb.Request, out *pb.Response) error
 }

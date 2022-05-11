@@ -2,6 +2,7 @@ package go_cache
 
 import (
 	"fmt"
+	pb "go-cache/gocachepb"
 	"go-cache/singleflight"
 	"log"
 	"sync"
@@ -43,7 +44,7 @@ func NewGroup(name string, cacheByte int64, getter Getter) *Group {
 		name:      name,
 		getter:    getter,
 		mainCache: cache{cacheByte: cacheByte},
-		loader: &singleflight.Group{},
+		loader:    &singleflight.Group{},
 	}
 	groups[name] = g
 	return g
@@ -76,11 +77,11 @@ func (g *Group) Get(key string) (ByteView, error) {
 }
 
 func (g *Group) load(key string) (ByteView, error) {
-	viewi,err := g.loader.Do(key, func() (interface{}, error) {
+	viewi, err := g.loader.Do(key, func() (interface{}, error) {
 		if g.peers != nil {
 			if peer, ok := g.peers.PickPeer(key); ok {
 				val, err := g.getFormPeer(peer, key)
-				if  err != nil {
+				if err != nil {
 					log.Println("[GeeCache] Failed to get from peer", err)
 					return ByteView{}, err
 				}
@@ -97,7 +98,12 @@ func (g *Group) load(key string) (ByteView, error) {
 }
 
 func (g *Group) getFormPeer(peer PeerGetter, key string) (ByteView, error) {
-	bytes, err := peer.Get(g.name, key)
+	req := &pb.Request{
+		Group: g.name,
+		Key:   key,
+	}
+	res := &pb.Response{}
+	bytes, err := peer.Get(req, res)
 	if err != nil {
 		return ByteView{}, err
 	}
